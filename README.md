@@ -19,16 +19,24 @@ here, for that reason.
 
 | Input | Default | Description |
 |---|---|---|
-| `version` | `latest` | Version to install, without a leading `v` (e.g. `1.29.0`), or `latest`. |
+| `version` | detected | Version to install, without a leading `v` (e.g. `1.29.0`), or `latest`. Unset means: read the project's composer files. |
+| `working-directory` | workspace | Where the composer files are read from when `version` is unset. |
 | `sha256` | — | Expected sha256 of the release archive. Verified before install when set. |
+| `token` | — | Accepted and never read; there is no REST call to authenticate. |
 
 | Output | Description |
 |---|---|
-| `version` | The version installed, with `latest` resolved to a concrete one. |
+| `version` | The version installed, with `latest` and any range resolved. |
 
-`latest` is resolved from where the releases page redirects to, which names the tag. Asking the
-REST API instead would spend the quota this action exists to protect — and more of it than a pinned
-version does, since resolving latest there means listing every release.
+With no `version`, the version comes from the project itself: the `carthage-software/mago` entry in
+`composer.lock`, then the one in `composer.json`, and the latest release if neither names mago. A
+`composer.json` may state a range (`^1.29`, `~1.29.0`, `>=1.0 <2.0`, `1.29.*`, `a || b`), and then
+the newest release inside it is installed.
+
+None of that spends REST API quota. `latest` is read from where the releases page redirects to,
+which names the tag, and a range is matched against `git ls-remote --tags`, which is the git
+protocol. The REST API would answer the same questions out of the 1,000/hour budget every workflow
+run in the repository shares.
 
 Pinning the checksum is worth it where the version is pinned anyway:
 
@@ -54,14 +62,18 @@ This action constructs the asset URL directly and fetches it from the release CD
 REST API, so it uses no quota. The binary is cached by target triple and version, so a hit skips
 the download too.
 
-It is a composite action on purpose: the work is `curl`, `tar` and a checksum, none of which needs
-a JavaScript runtime, a bundled `node_modules`, or the dependency-update churn that comes with one.
+It is a composite action on purpose: the work is `curl`, `tar`, a checksum and some shell to read a
+version out of the composer files, none of which needs a JavaScript runtime, a bundled
+`node_modules`, or the dependency-update churn that comes with one.
 
 ## Support
 
-Linux and macOS, on x86-64 and arm64. Windows runners are rejected with a clear error rather than
-silently misdetected; mago does publish a Windows asset, so adding it is mostly a matter of
-handling the `.zip` and the `.exe` suffix if someone needs it.
+Linux, macOS and Windows, on x86-64 and arm64 — every runner mago publishes an asset for. Anything
+else is rejected with a clear error rather than silently misdetected.
+
+Reading a version out of composer files needs `jq`, which every GitHub-hosted runner image has. On
+a self-hosted runner without it the read is skipped with a warning and the latest release is
+installed, so pass `version` explicitly there.
 
 ## Licence
 

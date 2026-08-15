@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -64,6 +64,97 @@ jobs:
             *"$RESOLVED"*) ;;
             *) echo "::error::installed $got but resolved $RESOLVED"; exit 1 ;;
           esac
+
+  # The composer files decide the version when the input is left out, so a workflow that pins
+  # nothing still installs the version the project itself asks for.
+  detect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A lockfile pins one version, so the answer is exactly that version.
+      - id: locked
+        uses: ./
+        with:
+          working-directory: test/fixtures/lockfile
+      - shell: bash
+        env:
+          RESOLVED: ${{ steps.locked.outputs.version }}
+        run: |
+          echo "resolved: $RESOLVED"
+          if [ "$RESOLVED" != "$MAGO_VERSION" ]; then
+            echo "::error::composer.lock pins $MAGO_VERSION, but $RESOLVED was installed"
+            exit 1
+          fi
+          mago --version | grep -F "$RESOLVED"
+
+      # A manifest may name a range, and then the newest release inside it is the answer.
+      - id: ranged
+        uses: ./
+        with:
+          working-directory: test/fixtures/manifest
+      - shell: bash
+        env:
+          RESOLVED: ${{ steps.ranged.outputs.version }}
+        run: |
+          echo "resolved: $RESOLVED"
+          # The fixture asks for ^1.29, so anything from 1.29.0 up to but not including 2.0.0.
+          minor=${RESOLVED#1.}
+          minor=${minor%%.*}
+          case "$RESOLVED" in
+            1.*) ;;
+            *) echo "::error::^1.29 resolved to $RESOLVED, which is not a 1.x"; exit 1 ;;
+          esac
+          if [ "$minor" -lt 29 ]; then
+            echo "::error::^1.29 resolved to $RESOLVED"
+            exit 1
+          fi
+          mago --version | grep -F "$RESOLVED"
+
+      # A directory that names no mago at all falls back to the latest release.
+      - id: fallback
+        uses: ./
+        with:
+          working-directory: test/fixtures/no-mago
+      - shell: bash
+        env:
+          RESOLVED: ${{ steps.fallback.outputs.version }}
+        run: |
+          echo "resolved: $RESOLVED"
+          case "$RESOLVED" in
+            "" | latest) echo "::error::a project without mago did not fall back to latest"; exit 1 ;;
+          esac
+
+      # A working-directory that does not exist is a warning, not a failure: the install goes
+      # ahead on the fallback rather than stopping the job.
+      - id: missing
+        uses: ./
+        with:
+          working-directory: does-not-exist
+      - shell: bash
+        env:
+          RESOLVED: ${{ steps.missing.outputs.version }}
+        run: |
+          echo "resolved: $RESOLVED"
+          case "$RESOLVED" in
+            "" | latest) echo "::error::a missing working-directory should still install"; exit 1 ;;
+          esac
+
+  # The version logic is shell, and the three runner families do not ship the same shell.
+  version:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - shell: bash
+        run: ./test/version-test.sh
 
   # A matching checksum must install, and a wrong one must stop the install rather than pass it
   # through. Both use a sha256 no other job pins, so neither can be answered from a warm cache.
