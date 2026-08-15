@@ -3,18 +3,17 @@
 Installs the [mago](https://github.com/carthage-software/mago) PHP toolchain in GitHub Actions.
 
 ```yaml
-- uses: chaotic-ground/setup-mago@v1
+- uses: chaotic-ground/setup-mago@4042602ce52a1108688c4009734eedba2a9b66e4  # v1.0.0
   with:
     version: "1.29.0"
 - run: mago format --check
 - run: mago lint
 ```
 
-A commit SHA works in place of `@v1`, and is what GitHub recommends for third-party actions:
-
-```yaml
-- uses: chaotic-ground/setup-mago@4042602ce52a1108688c4009734eedba2a9b66e4  # v1.0.0
-```
+Pin by commit SHA, which is what GitHub recommends for third-party actions. A tag is a ref this
+repository can repoint at any commit, so anyone who takes over the repository reaches every
+workflow that follows one; a SHA names the code you reviewed. No moving major tag is published
+here, for that reason.
 
 ## Inputs
 
@@ -34,7 +33,7 @@ version does, since resolving latest there means listing every release.
 Pinning the checksum is worth it where the version is pinned anyway:
 
 ```yaml
-- uses: chaotic-ground/setup-mago@v1
+- uses: chaotic-ground/setup-mago@4042602ce52a1108688c4009734eedba2a9b66e4  # v1.0.0
   with:
     version: "1.29.0"
     sha256: "5e99d1232fa93e6adc6feaaddaf2b46c148b2990173cdcf18400b474646bf046"
@@ -61,7 +60,7 @@ a JavaScript runtime, a bundled `node_modules`, or the dependency-update churn t
 ## Support
 
 Linux and macOS, on x86-64 and arm64. Windows runners are rejected with a clear error rather than
-silently mis-detected; mago does publish a Windows asset, so adding it is mostly a matter of
+silently misdetected; mago does publish a Windows asset, so adding it is mostly a matter of
 handling the `.zip` and the `.exe` suffix if someone needs it.
 
 ## Licence

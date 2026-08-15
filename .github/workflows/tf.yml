@@ -1,0 +1,36 @@
+---
+name: Tofu
+
+on:
+  pull_request:
+    paths: &paths
+      - ".tf/**"
+      - .github/workflows/tf.yml
+  push:
+    branches:
+      - main
+    paths: *paths
+  workflow_dispatch:
+
+permissions: {}
+
+# Cancel superseded runs; pushes to main are left to finish, keeping a result per merged commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: lens0021/repo-settings-as-code@382f2d2dc79977772e993f66a1fd801bfc67e8c3  # v2.0.1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

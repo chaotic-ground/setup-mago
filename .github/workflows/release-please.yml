@@ -1,0 +1,26 @@
+---
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+# Only the version tag release-please writes is published: no v<major> tag follows the releases.
+# Such a tag is a ref this repository can repoint at any commit, so whoever takes the repository
+# over reaches every workflow that follows it. Callers pin a SHA instead, as the README shows.
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v5.0.0
+        id: release
+        with:
+          # Dotfile config to match the dot-prefixed manifest; config-file points the action at it.
+          config-file: .release-please-config.json
