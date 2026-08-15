@@ -58,7 +58,17 @@ runs:
         case "$OS" in
           Linux) triple="$arch-unknown-linux-musl"; archive=tar.gz; binary=mago ;;
           macOS) triple="$arch-apple-darwin"; archive=tar.gz; binary=mago ;;
-          Windows) triple="$arch-pc-windows-msvc"; archive=zip; binary=mago.exe ;;
+          Windows)
+            # mago publishes no aarch64 Windows asset, so an arm64 Windows runner has nothing to
+            # install. Say that, rather than fetch a URL that will never exist and fail on the 404.
+            if [ "$arch" != x86_64 ]; then
+              echo "::error::mago publishes no Windows build for $ARCH; use an x86-64 Windows runner"
+              exit 1
+            fi
+            triple="$arch-pc-windows-msvc"
+            archive=zip
+            binary=mago.exe
+            ;;
           *) echo "::error::setup-mago does not support $OS"; exit 1 ;;
         esac
 
