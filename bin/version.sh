@@ -18,203 +18,140 @@ set -f
 MAGO_REPO=${MAGO_REPO:-https://github.com/carthage-software/mago}
 PACKAGE=carthage-software/mago
 
+# Every constraint here is one or more half-open windows: "^1.29" is [1.29.0, 2.0.0) and
+# ">=1.0 <1.5" is [1.0.0, 1.5.0). A version then only ever has to be compared with a window edge,
+# which is easier on a padded key -- 1.29.0 becomes 000001000029000000, one number to compare --
+# than on three numbers in sequence.
+FLOOR=000000000000000000
+CEILING=999999999999999999
+
 warn() { echo "::warning::$*" >&2; }
 
-# Only "1", "1.2", "v1.2.3" and the like are versions; "dev-main" and friends are not.
-numeric() {
-  _n=${1#v}
-  _n=${_n%%-*}
-  _n=${_n%%+*}
-  case "$_n" in
-    '' | *[!0-9.]*) return 1 ;;
-    [0-9]*) return 0 ;;
-    *) return 1 ;;
+# The key for a version, and nothing at all for something that is not one ("dev-main", "-").
+key() {
+  _k=${1#v}
+  _k=${_k%%-*}
+  _k=${_k%%+*}
+  case "$_k" in
+    '' | .* | *[!0-9.]*) return 1 ;;
   esac
-}
-
-# "v1.2" -> "1.2.0". Anything after the three numbers (prerelease, build metadata) is dropped:
-# mago releases are plain X.Y.Z, and a constraint is only ever compared against those.
-normalize() {
-  _v=${1#v}
-  _v=${_v%%-*}
-  _v=${_v%%+*}
-  _major=${_v%%.*}
-  _rest=${_v#*.}
-  if [ "$_rest" = "$_v" ]; then _rest="0.0"; fi
+  _major=${_k%%.*}
+  _rest=${_k#*.}
+  if [ "$_rest" = "$_k" ]; then _rest=0.0; fi
   _minor=${_rest%%.*}
   _patch=${_rest#*.}
   if [ "$_patch" = "$_rest" ]; then _patch=0; fi
   _patch=${_patch%%.*}
-  printf '%s.%s.%s\n' "${_major:-0}" "${_minor:-0}" "${_patch:-0}"
+  printf '%06d%06d%06d\n' "${_major:-0}" "${_minor:-0}" "${_patch:-0}"
 }
 
-# How many numbers the constraint actually named, which is what tells "~1.2" from "~1.2.0".
-components() {
-  _c=${1#v}
-  _c=${_c%%-*}
-  case "$_c" in
-    *.*.*) echo 3 ;;
-    *.*) echo 2 ;;
-    *) echo 1 ;;
-  esac
+unkey() {
+  printf '%d.%d.%d\n' "$((10#${1:0:6}))" "$((10#${1:6:6}))" "$((10#${1:12:6}))"
 }
 
-# -1, 0 or 1, comparing the three numbers in order.
-vcmp() {
-  _a=$(normalize "$1")
-  _b=$(normalize "$2")
-  while [ -n "$_a$_b" ]; do
-    _x=${_a%%.*}
-    _y=${_b%%.*}
-    if [ "${_x:-0}" -lt "${_y:-0}" ]; then echo -1; return; fi
-    if [ "${_x:-0}" -gt "${_y:-0}" ]; then echo 1; return; fi
-    case "$_a" in *.*) _a=${_a#*.} ;; *) _a= ;; esac
-    case "$_b" in *.*) _b=${_b#*.} ;; *) _b= ;; esac
-  done
-  echo 0
-}
-
-bump() {
-  _b=$(normalize "$1")
+# The next key up at the given level, which is where a window ends: after 1.29.x comes 1.30.0,
+# after 1.x comes 2.0.0.
+next() {
+  _major=$((10#${1:0:6}))
+  _minor=$((10#${1:6:6}))
+  _patch=$((10#${1:12:6}))
   case "$2" in
-    major) printf '%s.0.0\n' "$((${_b%%.*} + 1))" ;;
-    minor) _t=${_b#*.}; printf '%s.%s.0\n' "${_b%%.*}" "$((${_t%%.*} + 1))" ;;
-    patch) _t=${_b#*.}; printf '%s.%s.%s\n' "${_b%%.*}" "${_t%%.*}" "$((${_t#*.} + 1))" ;;
+    major) _major=$((_major + 1)); _minor=0; _patch=0 ;;
+    minor) _minor=$((_minor + 1)); _patch=0 ;;
+    patch) _patch=$((_patch + 1)) ;;
   esac
+  printf '%06d%06d%06d\n' "$_major" "$_minor" "$_patch"
 }
 
-# Turns one comparator into "<op> <version>" lines: everything downstream compares versions only.
-expand() {
+# One comparator as "<low> <high>". A shape this does not read -- "!=1.0", a hyphen range -- fails,
+# and the caller treats that as "cannot tell" rather than guessing a window.
+bound() {
   case "$1" in
-    '' | '*') ;;
-    '>='* | '<='* | '!='* | '>'* | '<'* | '='*)
-      numeric "$(printf '%s' "$1" | sed 's/^[><=!]*//')" || return 0
-      ;;
-    *)
-      numeric "$(printf '%s' "$1" | sed 's/^[\^~]//;s/\.\*$//')" || return 0
-      ;;
+    '' | '*') printf '%s %s\n' "$FLOOR" "$CEILING"; return 0 ;;
   esac
-  case "$1" in
-    '' | '*') echo ">= 0.0.0" ;;
-    ^*)
-      _base=$(normalize "${1#^}")
-      echo ">= $_base"
-      # Caret keeps the leftmost non-zero number, so 0.x releases are breaking on the minor and
-      # 0.0.x on the patch -- composer's reading of it, not npm's.
-      case "$_base" in
-        0.0.*) echo "< $(bump "$_base" patch)" ;;
-        0.*) echo "< $(bump "$_base" minor)" ;;
-        *) echo "< $(bump "$_base" major)" ;;
-      esac
-      ;;
-    ~*)
-      _base=$(normalize "${1#\~}")
-      echo ">= $_base"
-      if [ "$(components "${1#\~}")" -ge 3 ]; then
-        echo "< $(bump "$_base" minor)"
-      else
-        echo "< $(bump "$_base" major)"
-      fi
-      ;;
-    *.\*)
-      _base=$(normalize "${1%.\*}")
-      echo ">= $_base"
-      if [ "$(components "${1%.\*}")" -ge 2 ]; then
-        echo "< $(bump "$_base" minor)"
-      else
-        echo "< $(bump "$_base" major)"
-      fi
-      ;;
-    '>='* | '<='* | '!='* | '>'* | '<'* | '='*)
-      _op=$(printf '%s' "$1" | sed 's/[^><=!].*//')
-      echo "$_op $(normalize "${1#"$_op"}")"
-      ;;
-    *)
-      # A bare version: exact when all three numbers are given, otherwise the range they cover.
-      if [ "$(components "$1")" -ge 3 ]; then
-        echo "= $(normalize "$1")"
-      else
-        expand "$1.*"
-      fi
-      ;;
+  _op=$(printf '%s' "$1" | sed 's/[^^~><=].*//')
+  _operand=${1#"$_op"}
+  # "1.29.*" covers the same releases as "1.29", so drop the wildcard and count what is left.
+  case "$_operand" in *.\*) _operand=${_operand%.\*} ;; esac
+  case "$_operand" in
+    *.*.*) _given=3 ;;
+    *.*) _given=2 ;;
+    *) _given=1 ;;
   esac
+  _low=$(key "$_operand") || return 1
+  # Most comparators are "from here up to the next X", and differ only in which X: the operator
+  # and how many numbers were written decide the level, and one step up from there closes it.
+  _level=
+  case "$_op" in
+    '>=') _high=$CEILING ;;
+    '>') _low=$(next "$_low" patch); _high=$CEILING ;;
+    '<') _high=$_low; _low=$FLOOR ;;
+    '<=') _high=$(next "$_low" patch); _low=$FLOOR ;;
+    # Caret keeps the leftmost non-zero number, so 0.x releases break on the minor and 0.0.x on
+    # the patch -- composer's reading of it, not npm's.
+    '^') case "$_low" in
+      000000000000*) _level="patch" ;;
+      000000*) _level="minor" ;;
+      *) _level="major" ;;
+    esac ;;
+    # A tilde frees the last number that was given: ~1.29.0 is 1.29.x, ~1.29 is 1.x.
+    '~') if [ "$_given" -ge 3 ]; then _level="minor"; else _level="major"; fi ;;
+    # A bare version is exact when all three numbers are there, and a range when they are not.
+    '' | '=') case "$_given" in
+      3) _level="patch" ;;
+      2) _level="minor" ;;
+      *) _level="major" ;;
+    esac ;;
+    *) return 1 ;;
+  esac
+  if [ -n "$_level" ]; then _high=$(next "$_low" "$_level"); fi
+  printf '%s %s\n' "$_low" "$_high"
 }
 
-satisfies_one() {
-  _cmp=$(vcmp "$3" "$2")
-  case "$1" in
-    '>=') [ "$_cmp" -ge 0 ] ;;
-    '>') [ "$_cmp" -gt 0 ] ;;
-    '<=') [ "$_cmp" -le 0 ] ;;
-    '<') [ "$_cmp" -lt 0 ] ;;
-    '!=') [ "$_cmp" -ne 0 ] ;;
-    *) [ "$_cmp" -eq 0 ] ;;
-  esac
-}
-
-# All comparators in one alternative must hold; a hyphen range is the pair they stand for.
-satisfies_alternative() {
-  _alt=$(printf '%s' "$1" | tr ',' ' ')
-  _version=$2
-  case " $_alt " in
-    *' - '*)
-      _low=${_alt%% - *}
-      _high=${_alt##* - }
-      _alt=">=$_low"
-      if [ "$(components "$_high")" -ge 3 ]; then
-        _alt="$_alt <=$_high"
-      else
-        _alt="$_alt <$(bump "$_high" minor)"
-      fi
-      ;;
-  esac
-  for _comparator in $_alt; do
-    _predicates=$(expand "$_comparator")
-    [ -n "$_predicates" ] || return 1
-    _held=yes
-    while read -r _op _ref; do
-      [ -n "$_op" ] || continue
-      if ! satisfies_one "$_op" "$_ref" "$_version"; then _held=no; break; fi
-    done <<EOF
-$_predicates
-EOF
-    [ "$_held" = yes ] || return 1
+# Comparators written side by side all have to hold, so their window is where they overlap.
+window() {
+  _low=$FLOOR
+  _high=$CEILING
+  for _comparator in $(printf '%s' "$1" | tr ',' ' '); do
+    _bound=$(bound "$_comparator") || return 1
+    _bound_low=${_bound% *}
+    _bound_high=${_bound#* }
+    if ((10#$_bound_low > 10#$_low)); then _low=$_bound_low; fi
+    if ((10#$_bound_high < 10#$_high)); then _high=$_bound_high; fi
   done
-  return 0
+  printf '%s %s\n' "$_low" "$_high"
 }
 
-satisfies() {
-  _spec=$(printf '%s' "$1" | sed 's/||/|/g')
-  _version=$2
-  _rest=$_spec
-  while [ -n "$_rest" ]; do
-    case "$_rest" in
-      *'|'*) _alternative=${_rest%%|*}; _rest=${_rest#*|} ;;
-      *) _alternative=$_rest; _rest= ;;
-    esac
-    if satisfies_alternative "$_alternative" "$_version"; then return 0; fi
-  done
-  return 1
-}
-
-# Newest version on stdin that the spec accepts. Prereleases and tags that are not versions are
-# never offered: a constraint in a composer file is about released versions.
+# Newest version on stdin inside any window the spec allows. Prereleases and tags that are not
+# versions are never offered: a constraint in a composer file is about released versions.
 pick() {
+  _windows=
+  _spec=$(printf '%s' "$1" | sed 's/||/|/g')
+  while [ -n "$_spec" ]; do
+    case "$_spec" in
+      *'|'*) _alternative=${_spec%%|*}; _spec=${_spec#*|} ;;
+      *) _alternative=$_spec; _spec= ;;
+    esac
+    _windows="$_windows$(window "$_alternative" || true)
+"
+  done
   _best=
   while read -r _candidate; do
-    case "$_candidate" in
-      v[0-9]*.[0-9]*.[0-9]* | [0-9]*.[0-9]*.[0-9]*) ;;
-      *) continue ;;
-    esac
     case "${_candidate#v}" in
       *[!0-9.]*) continue ;;
+      [0-9]*.[0-9]*.[0-9]*) ;;
+      *) continue ;;
     esac
-    satisfies "$1" "$_candidate" || continue
-    if [ -z "$_best" ] || [ "$(vcmp "$_candidate" "$_best")" -gt 0 ]; then
-      _best=$(normalize "$_candidate")
-    fi
+    _key=$(key "$_candidate") || continue
+    while read -r _low _high; do
+      [ -n "$_high" ] || continue
+      if ((10#$_key < 10#$_low || 10#$_key >= 10#$_high)); then continue; fi
+      if [ -z "$_best" ] || ((10#$_key > 10#$_best)); then _best=$_key; fi
+    done <<EOF
+$_windows
+EOF
   done
-  if [ -n "$_best" ]; then printf '%s\n' "$_best"; fi
+  if [ -n "$_best" ]; then unkey "$_best"; fi
 }
 
 # The constraint the project already states: the lockfile first, since it pins one version, then
@@ -240,7 +177,22 @@ detect() {
   return 0
 }
 
+# The tag list is the one request a token can help with: git counts an authenticated request
+# against the account rather than against the runner's shared IP. It is passed through the
+# environment rather than the command line so it stays out of the process list, and a token the
+# server rejects costs a warning and an anonymous retry rather than the whole resolution.
 tags() {
+  if [ -n "${MAGO_TOKEN:-}" ]; then
+    _basic=$(printf 'x-access-token:%s' "$MAGO_TOKEN" | base64 | tr -d '\n')
+    if _refs=$(GIT_CONFIG_COUNT=1 \
+      GIT_CONFIG_KEY_0=http.extraheader \
+      GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $_basic" \
+      git ls-remote --tags --refs "$MAGO_REPO" 2>/dev/null); then
+      printf '%s\n' "$_refs" | sed 's#.*refs/tags/##'
+      return 0
+    fi
+    warn "the token was not accepted for listing mago's tags; asking again without it"
+  fi
   git ls-remote --tags --refs "$MAGO_REPO" | sed 's#.*refs/tags/##'
 }
 

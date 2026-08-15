@@ -22,7 +22,7 @@ here, for that reason.
 | `version` | detected | Version to install, without a leading `v` (e.g. `1.29.0`), or `latest`. Unset means: read the project's composer files. |
 | `working-directory` | workspace | Where the composer files are read from when `version` is unset. |
 | `sha256` | — | Expected sha256 of the release archive. Verified before install when set. |
-| `token` | — | Accepted and never read; there is no REST call to authenticate. |
+| `token` | — | Authenticates the git request that lists tags, and nothing else. |
 
 | Output | Description |
 |---|---|
@@ -37,6 +37,15 @@ None of that spends REST API quota. `latest` is read from where the releases pag
 which names the tag, and a range is matched against `git ls-remote --tags`, which is the git
 protocol. The REST API would answer the same questions out of the 1,000/hour budget every workflow
 run in the repository shares.
+
+That leaves anonymous requests, which GitHub counts against the runner's shared IP. `token` is
+there for the one request where authenticating helps — the tag listing — and is unnecessary
+otherwise: the release download and the `latest` redirect are not API calls and take no
+credentials. A token GitHub rejects costs a warning and an anonymous retry, not the install.
+
+Constraints are read as ranges: `^`, `~`, `x.y.*`, `>=`/`>`/`<=`/`<`/`=`, several of those side by
+side, and `||` between alternatives. `!=` and hyphen ranges are not read — a constraint using them
+resolves to the latest release with a warning.
 
 Pinning the checksum is worth it where the version is pinned anyway:
 

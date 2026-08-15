@@ -18,9 +18,10 @@ inputs:
     default: ""
   token:
     description: >-
-      Accepted so a workflow written for a setup action that authenticates GitHub API requests
-      can keep the input. It is never read: nothing this action does goes through the REST API,
-      so there is nothing to authenticate.
+      Used for one thing: authenticating the git request that lists mago's tags, which happens
+      only when a version range has to be resolved. Optional -- without it that request is
+      anonymous, which is fine until the runner's shared IP is throttled. Nothing here goes
+      through the GitHub REST API, so nothing else needs authenticating.
     required: false
     default: ""
   sha256:
@@ -46,6 +47,7 @@ runs:
         VERSION: ${{ inputs.version }}
         WORKING_DIRECTORY: ${{ inputs.working-directory }}
         SHA256: ${{ inputs.sha256 }}
+        MAGO_TOKEN: ${{ inputs.token }}
       run: |
         # mago publishes one asset per Rust target triple, so map the runner onto one.
         case "$ARCH" in

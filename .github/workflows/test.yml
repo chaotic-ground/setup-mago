@@ -69,6 +69,8 @@ jobs:
   # nothing still installs the version the project itself asks for.
   detect:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # the token the ranged case passes has to be able to read a public repository
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -90,11 +92,13 @@ jobs:
           fi
           mago --version | grep -F "$RESOLVED"
 
-      # A manifest may name a range, and then the newest release inside it is the answer.
+      # A manifest may name a range, and then the newest release inside it is the answer. This is
+      # also the only path that lists tags, so it is the one that exercises the token.
       - id: ranged
         uses: ./
         with:
           working-directory: test/fixtures/manifest
+          token: ${{ github.token }}
       - shell: bash
         env:
           RESOLVED: ${{ steps.ranged.outputs.version }}

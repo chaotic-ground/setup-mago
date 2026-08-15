@@ -47,8 +47,10 @@ check "greater or equal" ">=1.30" "2.2.0"
 check "bounded range" ">=1.0 <2.0" "1.30.1"
 check "comma is an and" ">=1.0,<1.29" "1.28.0"
 check "alternatives" "^0.7 || ^1.0" "1.30.1"
-check "hyphen range" "1.0.0 - 1.29.0" "1.29.0"
-check "not equal" "1.30.* !=1.30.1" ""
+# A hyphen range and != are the two shapes the window model does not read; both end up
+# unresolved, and the action falls back to the latest release with a warning rather than guessing.
+check "hyphen range is not read" "1.0.0 - 1.29.0" ""
+check "not equal is not read" "1.30.* !=1.30.1" ""
 check "nothing satisfiable" "^9.0" ""
 check "not a constraint at all" "dev-main" ""
 
