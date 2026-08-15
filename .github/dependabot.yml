@@ -13,3 +13,14 @@ updates:
       github-actions:
         patterns:
           - "*"
+  # The provider constraint and its lock file, which nothing was watching.
+  - package-ecosystem: terraform
+    directory: /.tf
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      terraform:
+        patterns:
+          - "*"
