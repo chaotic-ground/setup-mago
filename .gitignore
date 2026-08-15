@@ -5,3 +5,6 @@
 
 # rumdl
 /.rumdl_cache/
+
+# uv
+/.venv/
