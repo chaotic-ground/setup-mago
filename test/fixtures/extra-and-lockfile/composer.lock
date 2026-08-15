@@ -1,0 +1,9 @@
+{
+    "packages": [],
+    "packages-dev": [
+        {
+            "name": "carthage-software/mago",
+            "version": "1.28.0"
+        }
+    ]
+}

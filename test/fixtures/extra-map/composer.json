@@ -1,0 +1,9 @@
+{
+    "extra": {
+        "mago-version": "1.29.0",
+        "mago-sha256": {
+            "x86_64-unknown-linux-musl": "5e99d1232fa93e6adc6feaaddaf2b46c148b2990173cdcf18400b474646bf046",
+            "aarch64-apple-darwin": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+    }
+}

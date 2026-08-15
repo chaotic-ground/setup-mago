@@ -117,6 +117,40 @@ jobs:
           fi
           mago --version | grep -F "$RESOLVED"
 
+      # A project that installs mago from its release archive states the version, and often the
+      # checksum, under "extra" -- and the checksum is then enforced without the workflow repeating
+      # it. The wrong one has to stop the install, or stating it would mean nothing.
+      - id: stated
+        uses: ./
+        with:
+          working-directory: test/fixtures/extra
+      - shell: bash
+        env:
+          RESOLVED: ${{ steps.stated.outputs.version }}
+          VERIFIED: ${{ steps.stated.outputs.sha256 }}
+        run: |
+          echo "resolved: $RESOLVED against $VERIFIED"
+          if [ "$RESOLVED" != "$MAGO_VERSION" ]; then
+            echo "::error::extra.mago-version states $MAGO_VERSION, but $RESOLVED was installed"
+            exit 1
+          fi
+          if [ "$VERIFIED" != "$MAGO_SHA256_LINUX_X64" ]; then
+            echo "::error::extra.mago-sha256 was not used; the archive was verified against $VERIFIED"
+            exit 1
+          fi
+          mago --version | grep -F "$RESOLVED"
+
+      - id: stated-wrong
+        continue-on-error: true
+        uses: ./
+        with:
+          working-directory: test/fixtures/extra-wrong
+      - if: steps.stated-wrong.outcome != 'failure'
+        shell: bash
+        run: |
+          echo "::error::a mismatched extra.mago-sha256 was accepted"
+          exit 1
+
       # A directory that names no mago at all falls back to the latest release.
       - id: fallback
         uses: ./
