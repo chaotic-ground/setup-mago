@@ -41,6 +41,30 @@ jobs:
             *) echo "::error::expected $MAGO_VERSION, got: $got"; exit 1 ;;
           esac
 
+  # "latest" has to resolve to a concrete tag without touching the REST API, and report which one.
+  latest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - id: mago
+        uses: ./
+      - shell: bash
+        env:
+          RESOLVED: ${{ steps.mago.outputs.version }}
+        run: |
+          echo "resolved: $RESOLVED"
+          case "$RESOLVED" in
+            ""|latest) echo "::error::latest was not resolved to a concrete version"; exit 1 ;;
+          esac
+          got=$(mago --version)
+          echo "$got"
+          case "$got" in
+            *"$RESOLVED"*) ;;
+            *) echo "::error::installed $got but resolved $RESOLVED"; exit 1 ;;
+          esac
+
   # A matching checksum must install, and a wrong one must stop the install rather than pass it
   # through. Both use a sha256 no other job pins, so neither can be answered from a warm cache.
   checksum:

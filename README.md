@@ -18,10 +18,18 @@ A commit SHA works in place of `@v1`, and is what GitHub recommends for third-pa
 
 ## Inputs
 
-| Input | Required | Description |
+| Input | Default | Description |
 |---|---|---|
-| `version` | yes | Version to install, without a leading `v` (e.g. `1.29.0`). |
-| `sha256` | no | Expected sha256 of the release archive. Verified before install when set. |
+| `version` | `latest` | Version to install, without a leading `v` (e.g. `1.29.0`), or `latest`. |
+| `sha256` | — | Expected sha256 of the release archive. Verified before install when set. |
+
+| Output | Description |
+|---|---|
+| `version` | The version installed, with `latest` resolved to a concrete one. |
+
+`latest` is resolved from where the releases page redirects to, which names the tag. Asking the
+REST API instead would spend the quota this action exists to protect — and more of it than a pinned
+version does, since resolving latest there means listing every release.
 
 Pinning the checksum is worth it where the version is pinned anyway:
 

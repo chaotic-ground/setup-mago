@@ -4,8 +4,10 @@ description: Install the mago PHP toolchain without spending GitHub REST API cal
 
 inputs:
   version:
-    description: Version of mago to install, without a leading "v" (e.g. "1.29.0").
-    required: true
+    description: >-
+      Version of mago to install, without a leading "v" (e.g. "1.29.0"), or "latest".
+    required: false
+    default: latest
   sha256:
     description: >-
       Expected sha256 of the release archive, verified before the binary is installed.
@@ -13,16 +15,22 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  version:
+    description: The version that was installed, with "latest" resolved to a concrete one.
+    value: ${{ steps.resolve.outputs.version }}
+
 runs:
   using: composite
   steps:
-    # mago publishes one asset per Rust target triple, so the runner has to be mapped onto one.
-    - id: target
+    - id: resolve
       shell: bash
       env:
         OS: ${{ runner.os }}
         ARCH: ${{ runner.arch }}
+        VERSION: ${{ inputs.version }}
       run: |
+        # mago publishes one asset per Rust target triple, so map the runner onto one.
         case "$ARCH" in
           X64) arch=x86_64 ;;
           ARM64) arch=aarch64 ;;
@@ -33,7 +41,23 @@ runs:
           macOS) triple="$arch-apple-darwin" ;;
           *) echo "::error::setup-mago does not support $OS; only Linux and macOS are handled"; exit 1 ;;
         esac
+
+        # "latest" comes from where the releases page redirects to, which names the tag. Asking the
+        # REST API instead would spend exactly the quota this action exists to protect -- and more
+        # of it than a pinned version does, since resolving latest there means listing releases.
+        if [ "$VERSION" = latest ]; then
+          effective=$(curl -fsSLo /dev/null -w '%{url_effective}' \
+            https://github.com/carthage-software/mago/releases/latest)
+          VERSION="${effective##*/}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = latest ]; then
+            echo "::error::could not resolve the latest mago release; the redirect gave $effective"
+            exit 1
+          fi
+          echo "latest is $VERSION"
+        fi
+
         echo "triple=$triple" >> "$GITHUB_OUTPUT"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
     # The checksum is part of the key: changing it should re-download and re-verify rather than
     # hand back the binary an earlier, differently-pinned run cached.
@@ -41,16 +65,16 @@ runs:
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
       with:
         path: ~/.local/bin/mago
-        key: mago-${{ steps.target.outputs.triple }}-${{ inputs.version }}-${{ inputs.sha256 }}
+        key: mago-${{ steps.resolve.outputs.triple }}-${{ steps.resolve.outputs.version }}-${{ inputs.sha256 }}
 
     # The release asset is served by the CDN rather than the REST API, so this costs no quota. It
     # lands in a temporary directory and is only moved into the cached path once it verifies.
     - if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
-        VERSION: ${{ inputs.version }}
+        VERSION: ${{ steps.resolve.outputs.version }}
         SHA256: ${{ inputs.sha256 }}
-        TRIPLE: ${{ steps.target.outputs.triple }}
+        TRIPLE: ${{ steps.resolve.outputs.triple }}
       run: |
         dir="mago-${VERSION}-${TRIPLE}"
         url="https://github.com/carthage-software/mago/releases/download/${VERSION}/${dir}.tar.gz"
