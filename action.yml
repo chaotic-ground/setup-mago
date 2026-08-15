@@ -19,10 +19,9 @@ inputs:
     default: ""
   token:
     description: >-
-      Used for one thing: authenticating the git request that lists mago's tags, which happens
-      only when a version range has to be resolved. Optional -- without it that request is
-      anonymous, which is fine until the runner's shared IP is throttled. Nothing here goes
-      through the GitHub REST API, so nothing else needs authenticating.
+      Authenticates the git request that lists mago's tags, which happens only when a version
+      range has to be resolved. Optional -- without it that request is anonymous, which is fine
+      until the runner's shared IP is throttled.
     required: false
     default: ""
   sha256:
@@ -108,18 +107,14 @@ runs:
           if [ -n "$sha256" ]; then echo "composer.json states a checksum for this archive"; fi
         fi
 
-        # Each pin gets its own directory, so two installs in one job never share a path. Sharing
-        # one would let actions/cache save whatever an earlier install left there under this
-        # install's key, and a later run restoring that key would skip the download -- and with it
-        # the checksum -- for a binary this pin never verified.
+        # Each pin gets its own directory and, below, its own key, so a run never gets handed back
+        # a binary that was verified against a different checksum, or against none.
         dir="$HOME/.cache/setup-mago/$triple/$version/${sha256:-unpinned}"
         native=$dir
         if [ "$OS" = Windows ]; then native=$(cygpath -w "$dir"); fi
 
-        # The checksum is part of the cache key, so changing a pin re-downloads and re-verifies
-        # rather than handing back what an earlier, differently-pinned run cached. The leading 2
-        # is the layout, not the tool: entries written under the old shared path are not
-        # restorable into this one and must not be reachable by key.
+        # The leading 2 is the layout, not the tool: entries written under the old shared path are
+        # not restorable into this one and must not be reachable by key.
         {
           echo "cache-key=mago-2-$triple-$version-$sha256"
           echo "triple=$triple"
