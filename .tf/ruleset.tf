@@ -61,6 +61,7 @@ resource "github_repository_ruleset" "default" {
           "install (macos-latest)",
           "install (ubuntu-24.04-arm)",
           "install (ubuntu-latest)",
+          "latest",
           "rumdl",
           "semantic-pull-request",
           "typos",
