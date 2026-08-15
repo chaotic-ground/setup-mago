@@ -3,6 +3,10 @@ import {
   to = github_repository.this
 }
 resource "github_repository" "this" {
+  # Only the squash message and title are set. Merge commits are off, and GitHub does not keep a
+  # title or message for a merge method the repository does not allow -- an apply wrote them, a
+  # fresh read gave the defaults back, and every run from an empty state planned to write them
+  # again, which is drift nobody can clear.
   allow_auto_merge            = true
   allow_merge_commit          = false
   allow_rebase_merge          = false
@@ -17,8 +21,6 @@ resource "github_repository" "this" {
   has_issues                  = true
   has_projects                = false
   has_wiki                    = false
-  merge_commit_message        = "PR_BODY"
-  merge_commit_title          = "PR_TITLE"
   name                        = "setup-mago"
   squash_merge_commit_message = "PR_BODY"
   squash_merge_commit_title   = "PR_TITLE"
@@ -42,6 +44,9 @@ resource "github_repository" "this" {
     ignore_changes = [
       # Cannot be imported
       archive_on_destroy,
+      # Not a repository setting at all -- a deprecated provider flag about how to read one --
+      # so an imported resource never carries it and every plan would show it being set.
+      ignore_vulnerability_alerts_during_read,
     ]
   }
 }
