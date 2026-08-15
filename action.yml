@@ -6,14 +6,15 @@ inputs:
   version:
     description: >-
       Version of mago to install, without a leading "v" (e.g. "1.29.0"), or "latest". Leave it
-      unset to take the version from the project's composer.lock, then its composer.json, and
-      fall back to the latest release when neither names mago.
+      unset to take the version the project states -- extra.mago-version in composer.json, then
+      composer.lock, then the composer.json requirement -- and fall back to the latest release
+      when it states none.
     required: false
     default: ""
   working-directory:
     description: >-
-      Directory the composer.lock and composer.json are read from when no version is given.
-      Defaults to the workspace.
+      Directory the composer.json and composer.lock are read from, for the version and for the
+      checksum. Defaults to the workspace.
     required: false
     default: ""
   token:
@@ -26,8 +27,9 @@ inputs:
     default: ""
   sha256:
     description: >-
-      Expected sha256 of the release archive, verified before the binary is installed.
-      Checked only when set, since the value differs per version and per platform.
+      Expected sha256 of the release archive, verified before the binary is installed. Checked
+      only when set, since the value differs per version and per platform. A project can state it
+      in composer.json instead, as extra.mago-sha256, and this input wins over that.
     required: false
     default: ""
 
@@ -35,6 +37,9 @@ outputs:
   version:
     description: The version that was installed, with "latest" and any range resolved.
     value: ${{ steps.resolve.outputs.version }}
+  sha256:
+    description: The checksum the archive was verified against, empty when none was stated.
+    value: ${{ steps.resolve.outputs.sha256 }}
 
 runs:
   using: composite
@@ -67,47 +72,60 @@ runs:
         action_path=$GITHUB_ACTION_PATH
         if [ "$OS" = Windows ]; then action_path=$(cygpath -u "$GITHUB_ACTION_PATH"); fi
 
+        # Where the composer files live matters even when a version was given, since a checksum
+        # can still come from them.
+        root=${WORKING_DIRECTORY:-$PWD}
+        if [ ! -d "$root" ]; then
+          echo "::warning::working-directory \"$root\" does not exist; reading $PWD instead"
+          root=$PWD
+        fi
+
         # With no version given, the project's own composer files decide, and the latest release
         # is the fallback when they say nothing about mago.
         spec=$VERSION
         if [ -z "$spec" ]; then
-          root=${WORKING_DIRECTORY:-$PWD}
-          if [ ! -d "$root" ]; then
-            echo "::warning::working-directory \"$root\" does not exist; reading $PWD instead"
-            root=$PWD
-          fi
           spec=$(bash "$action_path/bin/version.sh" detect "$root")
           if [ -n "$spec" ]; then echo "the composer files in $root ask for mago $spec"; fi
         fi
         version=$(bash "$action_path/bin/version.sh" resolve "$spec")
         echo "installing mago $version"
 
+        # A checksum given in the workflow wins. Otherwise the project may state one for exactly
+        # this archive, which is where it belongs: next to the version it verifies.
+        sha256=$SHA256
+        if [ -z "$sha256" ]; then
+          sha256=$(bash "$action_path/bin/version.sh" checksum "$root" "$triple" "$version")
+          if [ -n "$sha256" ]; then echo "composer.json states a checksum for this archive"; fi
+        fi
+
         # Each pin gets its own directory, so two installs in one job never share a path. Sharing
         # one would let actions/cache save whatever an earlier install left there under this
         # install's key, and a later run restoring that key would skip the download -- and with it
         # the checksum -- for a binary this pin never verified.
-        dir="$HOME/.cache/setup-mago/$triple/$version/${SHA256:-unpinned}"
+        dir="$HOME/.cache/setup-mago/$triple/$version/${sha256:-unpinned}"
         native=$dir
         if [ "$OS" = Windows ]; then native=$(cygpath -w "$dir"); fi
 
+        # The checksum is part of the cache key, so changing a pin re-downloads and re-verifies
+        # rather than handing back what an earlier, differently-pinned run cached. The leading 2
+        # is the layout, not the tool: entries written under the old shared path are not
+        # restorable into this one and must not be reachable by key.
         {
+          echo "cache-key=mago-2-$triple-$version-$sha256"
           echo "triple=$triple"
           echo "archive=$archive"
           echo "binary=$binary"
           echo "version=$version"
+          echo "sha256=$sha256"
           echo "dir=$dir"
           echo "native-dir=$native"
         } >> "$GITHUB_OUTPUT"
 
-    # The checksum is part of the key: changing it should re-download and re-verify rather than
-    # hand back the binary an earlier, differently-pinned run cached.
     - id: cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: ${{ steps.resolve.outputs.native-dir }}
-        # The leading 2 is the layout, not the tool: entries written under the old shared path are
-        # not restorable into this one and must not be reachable by key.
-        key: mago-2-${{ steps.resolve.outputs.triple }}-${{ steps.resolve.outputs.version }}-${{ inputs.sha256 }}
+        key: ${{ steps.resolve.outputs.cache-key }}
 
     # The release asset is served by the CDN rather than the REST API, so this costs no quota. It
     # lands in a temporary directory, and the install directory is not created until the archive
@@ -116,7 +134,7 @@ runs:
       shell: bash
       env:
         VERSION: ${{ steps.resolve.outputs.version }}
-        SHA256: ${{ inputs.sha256 }}
+        SHA256: ${{ steps.resolve.outputs.sha256 }}
         TRIPLE: ${{ steps.resolve.outputs.triple }}
         ARCHIVE: ${{ steps.resolve.outputs.archive }}
         BINARY: ${{ steps.resolve.outputs.binary }}

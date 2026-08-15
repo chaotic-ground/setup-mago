@@ -7,6 +7,8 @@
 # of the repository's hourly quota; asking the API to list releases is what this action avoids.
 #
 #   version.sh detect <dir>     print the mago constraint the composer files ask for, if any
+#   version.sh checksum <dir> <triple> <version>
+#                               print the sha256 the composer files state for that archive, if any
 #   version.sh pick <spec>      print the newest version on stdin that satisfies <spec>
 #   version.sh resolve <spec>   print the concrete version <spec> means, consulting the network
 #
@@ -154,13 +156,18 @@ EOF
   if [ -n "$_best" ]; then unkey "$_best"; fi
 }
 
-# The constraint the project already states: the lockfile first, since it pins one version, then
-# the manifest, which may instead name a range.
+# The version the project already states. "extra" comes first: a project that installs mago from
+# its release archive rather than through composer has nowhere else to put the version, and saying
+# it there is a statement about the binary, where the lockfile entry is about the package.
 detect() {
   _root=$1
   if ! command -v jq >/dev/null 2>&1; then
     warn "jq is not installed, so composer.lock and composer.json cannot be read for a mago version"
     return 0
+  fi
+  if [ -f "$_root/composer.json" ]; then
+    _stated=$(jq -r '.extra["mago-version"] // empty' "$_root/composer.json" 2>/dev/null || true)
+    if [ -n "$_stated" ]; then printf '%s\n' "$_stated"; return 0; fi
   fi
   if [ -f "$_root/composer.lock" ]; then
     _locked=$(jq -r --arg p "$PACKAGE" \
@@ -175,6 +182,25 @@ detect() {
     if [ -n "$_required" ]; then printf '%s\n' "$_required"; return 0; fi
   fi
   return 0
+}
+
+# The checksum the project states for the archive, if it states one, and only for the version it
+# stated alongside it: a checksum belongs to one archive, so it must not be carried over to a
+# version somebody else chose. The value is per-platform, so an object keyed by target triple is
+# the honest form; a bare string is taken as given, which is right for a project that installs on
+# one platform and fails loudly rather than quietly on another.
+checksum() {
+  _root=$1
+  _triple=$2
+  _version=$3
+  if ! command -v jq >/dev/null 2>&1; then return 0; fi
+  if [ ! -f "$_root/composer.json" ]; then return 0; fi
+  _stated=$(jq -r '.extra["mago-version"] // empty' "$_root/composer.json" 2>/dev/null || true)
+  if [ "${_stated#v}" != "$_version" ]; then return 0; fi
+  jq -r --arg t "$_triple" \
+    '(.extra["mago-sha256"] // empty) as $s
+     | if ($s | type) == "object" then ($s[$t] // empty) else $s end' \
+    "$_root/composer.json" 2>/dev/null || true
 }
 
 # The tag list is the one request a token can help with: git counts an authenticated request
@@ -232,10 +258,11 @@ resolve() {
 
 case "${1:-}" in
   detect) detect "${2:-$PWD}" ;;
+  checksum) checksum "${2:-$PWD}" "${3:-}" "${4:-}" ;;
   pick) pick "${2:-}" ;;
   resolve) resolve "${2:-}" ;;
   *)
-    echo "usage: version.sh detect <dir> | pick <spec> | resolve <spec>" >&2
+    echo "usage: version.sh detect <dir> | checksum <dir> <triple> <version> | pick <spec> | resolve <spec>" >&2
     exit 2
     ;;
 esac

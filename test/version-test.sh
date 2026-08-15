@@ -67,12 +67,38 @@ detects() {
   fi
 }
 
+detects "a version stated in extra" extra "1.29.0"
+detects "extra wins over the lockfile" extra-and-lockfile "1.29.0"
 detects "lockfile wins over the manifest" lockfile "1.29.0"
 detects "manifest range when there is no lockfile" manifest "^1.29"
 detects "manifest exact version" manifest-exact "1.29.0"
 detects "mago in require rather than require-dev" manifest-require "1.29.0"
 detects "a project that does not use mago" no-mago ""
 detects "a directory with no composer files" ../.. ""
+
+# A checksum belongs to one archive, so it is only offered for the version stated beside it and
+# for the platform it was written for.
+linux=x86_64-unknown-linux-musl
+sha=5e99d1232fa93e6adc6feaaddaf2b46c148b2990173cdcf18400b474646bf046
+zeros=0000000000000000000000000000000000000000000000000000000000000000
+
+states() {
+  got=$("$version_sh" checksum "$root/test/fixtures/$2" "$3" "$4")
+  if [ "$got" = "$5" ]; then
+    echo "ok       checksum $2 $3 $4 -> ${5:-<none>}"
+  else
+    echo "NOT OK   $1: checksum $2 $3 $4 gave '${got:-<none>}', wanted '${5:-<none>}'"
+    failures=$((failures + 1))
+  fi
+}
+
+states "a checksum stated as one value" extra "$linux" 1.29.0 "$sha"
+states "not for a version nobody stated" extra "$linux" 1.30.0 ""
+states "a checksum stated per platform" extra-map "$linux" 1.29.0 "$sha"
+states "the entry for the other platform" extra-map aarch64-apple-darwin 1.29.0 "$zeros"
+states "no entry for this platform" extra-map aarch64-pc-windows-msvc 1.29.0 ""
+states "a project that states no checksum" extra-and-lockfile "$linux" 1.29.0 ""
+states "a project that states nothing" no-mago "$linux" 1.29.0 ""
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures check(s) failed"

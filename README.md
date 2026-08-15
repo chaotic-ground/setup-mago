@@ -21,17 +21,49 @@ here, for that reason.
 |---|---|---|
 | `version` | detected | Version to install, without a leading `v` (e.g. `1.29.0`), or `latest`. Unset means: read the project's composer files. |
 | `working-directory` | workspace | Where the composer files are read from when `version` is unset. |
-| `sha256` | — | Expected sha256 of the release archive. Verified before install when set. |
+| `sha256` | — | Expected sha256 of the release archive. Verified before install when set, and can be stated in `composer.json` instead. |
 | `token` | — | Authenticates the git request that lists tags, and nothing else. |
 
 | Output | Description |
 |---|---|
 | `version` | The version installed, with `latest` and any range resolved. |
+| `sha256` | The checksum the archive was verified against, empty when none was stated. |
 
-With no `version`, the version comes from the project itself: the `carthage-software/mago` entry in
-`composer.lock`, then the one in `composer.json`, and the latest release if neither names mago. A
-`composer.json` may state a range (`^1.29`, `~1.29.0`, `>=1.0 <2.0`, `1.29.*`, `a || b`), and then
-the newest release inside it is installed.
+With no `version`, the version comes from the project itself, in this order: `extra.mago-version`
+in `composer.json`, then the `carthage-software/mago` entry in `composer.lock`, then the one in
+`composer.json`, and the latest release if the project states none. A requirement may be a range
+(`^1.29`, `~1.29.0`, `>=1.0 <2.0`, `1.29.*`, `a || b`), and then the newest release inside it is
+installed.
+
+`extra` comes first because a project that installs mago from its release archive rather than
+through composer has nowhere else to put the version — and it can put the checksum beside it:
+
+```json
+{
+    "extra": {
+        "mago-version": "1.29.0",
+        "mago-sha256": "5e99d1232fa93e6adc6feaaddaf2b46c148b2990173cdcf18400b474646bf046"
+    }
+}
+```
+
+Then no workflow repeats either value. The checksum differs per platform, so a project that
+installs on more than one states it per target triple:
+
+```json
+{
+    "extra": {
+        "mago-version": "1.29.0",
+        "mago-sha256": {
+            "x86_64-unknown-linux-musl": "5e99d1232fa93e6adc6feaaddaf2b46c148b2990173cdcf18400b474646bf046",
+            "aarch64-apple-darwin": "…"
+        }
+    }
+}
+```
+
+A stated checksum is only ever used for the version stated next to it, so a workflow that pins a
+different `version` does not get it applied to the wrong archive. The `sha256` input wins over it.
 
 None of that spends REST API quota. `latest` is read from where the releases page redirects to,
 which names the tag, and a range is matched against `git ls-remote --tags`, which is the git
