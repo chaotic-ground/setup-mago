@@ -58,13 +58,19 @@ resource "github_repository_ruleset" "default" {
       dynamic "required_check" {
         for_each = [
           "checksum",
+          "detect",
           "install (macos-latest)",
           "install (ubuntu-24.04-arm)",
           "install (ubuntu-latest)",
+          "install (windows-latest)",
           "latest",
           "rumdl",
           "semantic-pull-request",
+          "shellcheck",
           "typos",
+          "version (macos-latest)",
+          "version (ubuntu-latest)",
+          "version (windows-latest)",
           "yamllint",
           "zizmor",
         ]

@@ -1,0 +1,11 @@
+{
+    "_readme": ["This file locks the dependencies of your project to a known state"],
+    "content-hash": "0000000000000000000000000000000000",
+    "packages": [],
+    "packages-dev": [
+        {
+            "name": "carthage-software/mago",
+            "version": "1.29.0"
+        }
+    ]
+}

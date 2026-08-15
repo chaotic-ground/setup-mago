@@ -41,6 +41,15 @@ jobs:
           persist-credentials: false
       - uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054  # v0.6.2
 
+  # The version logic that reads composer files is shell; the runner image already has shellcheck.
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - run: shellcheck bin/*.sh test/*.sh
+
   typos:
     runs-on: ubuntu-latest
     steps:

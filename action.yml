@@ -5,9 +5,25 @@ description: Install the mago PHP toolchain without spending GitHub REST API cal
 inputs:
   version:
     description: >-
-      Version of mago to install, without a leading "v" (e.g. "1.29.0"), or "latest".
+      Version of mago to install, without a leading "v" (e.g. "1.29.0"), or "latest". Leave it
+      unset to take the version from the project's composer.lock, then its composer.json, and
+      fall back to the latest release when neither names mago.
     required: false
-    default: latest
+    default: ""
+  working-directory:
+    description: >-
+      Directory the composer.lock and composer.json are read from when no version is given.
+      Defaults to the workspace.
+    required: false
+    default: ""
+  token:
+    description: >-
+      Used for one thing: authenticating the git request that lists mago's tags, which happens
+      only when a version range has to be resolved. Optional -- without it that request is
+      anonymous, which is fine until the runner's shared IP is throttled. Nothing here goes
+      through the GitHub REST API, so nothing else needs authenticating.
+    required: false
+    default: ""
   sha256:
     description: >-
       Expected sha256 of the release archive, verified before the binary is installed.
@@ -17,7 +33,7 @@ inputs:
 
 outputs:
   version:
-    description: The version that was installed, with "latest" resolved to a concrete one.
+    description: The version that was installed, with "latest" and any range resolved.
     value: ${{ steps.resolve.outputs.version }}
 
 runs:
@@ -29,7 +45,9 @@ runs:
         OS: ${{ runner.os }}
         ARCH: ${{ runner.arch }}
         VERSION: ${{ inputs.version }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
         SHA256: ${{ inputs.sha256 }}
+        MAGO_TOKEN: ${{ inputs.token }}
       run: |
         # mago publishes one asset per Rust target triple, so map the runner onto one.
         case "$ARCH" in
@@ -38,39 +56,55 @@ runs:
           *) echo "::error::setup-mago does not support the $ARCH architecture"; exit 1 ;;
         esac
         case "$OS" in
-          Linux) triple="$arch-unknown-linux-musl" ;;
-          macOS) triple="$arch-apple-darwin" ;;
-          *) echo "::error::setup-mago does not support $OS; only Linux and macOS are handled"; exit 1 ;;
+          Linux) triple="$arch-unknown-linux-musl"; archive=tar.gz; binary=mago ;;
+          macOS) triple="$arch-apple-darwin"; archive=tar.gz; binary=mago ;;
+          Windows) triple="$arch-pc-windows-msvc"; archive=zip; binary=mago.exe ;;
+          *) echo "::error::setup-mago does not support $OS"; exit 1 ;;
         esac
 
-        # "latest" comes from where the releases page redirects to, which names the tag. Asking the
-        # REST API instead would spend exactly the quota this action exists to protect -- and more
-        # of it than a pinned version does, since resolving latest there means listing releases.
-        if [ "$VERSION" = latest ]; then
-          effective=$(curl -fsSLo /dev/null -w '%{url_effective}' \
-            https://github.com/carthage-software/mago/releases/latest)
-          VERSION="${effective##*/}"
-          if [ -z "$VERSION" ] || [ "$VERSION" = latest ]; then
-            echo "::error::could not resolve the latest mago release; the redirect gave $effective"
-            exit 1
+        # Windows runners hand bash the Windows form of a path, which bash only understands once
+        # cygpath has turned it around -- and the actions only understand on the way back.
+        action_path=$GITHUB_ACTION_PATH
+        if [ "$OS" = Windows ]; then action_path=$(cygpath -u "$GITHUB_ACTION_PATH"); fi
+
+        # With no version given, the project's own composer files decide, and the latest release
+        # is the fallback when they say nothing about mago.
+        spec=$VERSION
+        if [ -z "$spec" ]; then
+          root=${WORKING_DIRECTORY:-$PWD}
+          if [ ! -d "$root" ]; then
+            echo "::warning::working-directory \"$root\" does not exist; reading $PWD instead"
+            root=$PWD
           fi
-          echo "latest is $VERSION"
+          spec=$(bash "$action_path/bin/version.sh" detect "$root")
+          if [ -n "$spec" ]; then echo "the composer files in $root ask for mago $spec"; fi
         fi
+        version=$(bash "$action_path/bin/version.sh" resolve "$spec")
+        echo "installing mago $version"
 
         # Each pin gets its own directory, so two installs in one job never share a path. Sharing
         # one would let actions/cache save whatever an earlier install left there under this
         # install's key, and a later run restoring that key would skip the download -- and with it
         # the checksum -- for a binary this pin never verified.
-        echo "triple=$triple" >> "$GITHUB_OUTPUT"
-        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-        echo "dir=$HOME/.cache/setup-mago/$triple/$VERSION/${SHA256:-unpinned}" >> "$GITHUB_OUTPUT"
+        dir="$HOME/.cache/setup-mago/$triple/$version/${SHA256:-unpinned}"
+        native=$dir
+        if [ "$OS" = Windows ]; then native=$(cygpath -w "$dir"); fi
+
+        {
+          echo "triple=$triple"
+          echo "archive=$archive"
+          echo "binary=$binary"
+          echo "version=$version"
+          echo "dir=$dir"
+          echo "native-dir=$native"
+        } >> "$GITHUB_OUTPUT"
 
     # The checksum is part of the key: changing it should re-download and re-verify rather than
     # hand back the binary an earlier, differently-pinned run cached.
     - id: cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
-        path: ${{ steps.resolve.outputs.dir }}
+        path: ${{ steps.resolve.outputs.native-dir }}
         # The leading 2 is the layout, not the tool: entries written under the old shared path are
         # not restorable into this one and must not be reachable by key.
         key: mago-2-${{ steps.resolve.outputs.triple }}-${{ steps.resolve.outputs.version }}-${{ inputs.sha256 }}
@@ -84,33 +118,49 @@ runs:
         VERSION: ${{ steps.resolve.outputs.version }}
         SHA256: ${{ inputs.sha256 }}
         TRIPLE: ${{ steps.resolve.outputs.triple }}
+        ARCHIVE: ${{ steps.resolve.outputs.archive }}
+        BINARY: ${{ steps.resolve.outputs.binary }}
         DIR: ${{ steps.resolve.outputs.dir }}
       run: |
         name="mago-${VERSION}-${TRIPLE}"
-        url="https://github.com/carthage-software/mago/releases/download/${VERSION}/${name}.tar.gz"
+        url="https://github.com/carthage-software/mago/releases/download/${VERSION}/${name}.${ARCHIVE}"
         tmp=$(mktemp -d)
-        curl -fsSL -o "$tmp/mago.tar.gz" "$url"
+        curl -fsSL -o "$tmp/mago.$ARCHIVE" "$url"
         if [ -n "$SHA256" ]; then
           # macOS runners ship shasum, not GNU sha256sum.
           if command -v sha256sum >/dev/null 2>&1; then
-            echo "${SHA256}  $tmp/mago.tar.gz" | sha256sum -c -
+            echo "${SHA256}  $tmp/mago.$ARCHIVE" | sha256sum -c -
           else
-            echo "${SHA256}  $tmp/mago.tar.gz" | shasum -a 256 -c -
+            echo "${SHA256}  $tmp/mago.$ARCHIVE" | shasum -a 256 -c -
           fi
         fi
-        tar -xzf "$tmp/mago.tar.gz" -C "$tmp"
+        if [ "$ARCHIVE" = zip ]; then
+          # Windows images carry 7-Zip and PowerShell for certain, unzip only sometimes.
+          if command -v unzip >/dev/null 2>&1; then
+            unzip -q "$tmp/mago.zip" -d "$tmp"
+          elif command -v 7z >/dev/null 2>&1; then
+            7z x -bso0 -bsp0 -o"$tmp" "$tmp/mago.zip"
+          else
+            powershell -NoProfile -Command \
+              "Expand-Archive -Path '$(cygpath -w "$tmp/mago.zip")' -DestinationPath '$(cygpath -w "$tmp")' -Force"
+          fi
+        else
+          tar -xzf "$tmp/mago.tar.gz" -C "$tmp"
+        fi
         mkdir -p "$DIR"
-        mv "$tmp/$name/mago" "$DIR/mago"
+        mv "$tmp/$name/$BINARY" "$DIR/$BINARY"
 
     # A restored cache entry must still contain the binary; anything else is a broken entry and
     # should say so rather than leave a later step failing on "mago: command not found".
     - shell: bash
       env:
+        BINARY: ${{ steps.resolve.outputs.binary }}
         DIR: ${{ steps.resolve.outputs.dir }}
+        NATIVE_DIR: ${{ steps.resolve.outputs.native-dir }}
       run: |  # zizmor: ignore[github-env]
-        if [ ! -f "$DIR/mago" ]; then
-          echo "::error::mago is missing from $DIR after install"
+        if [ ! -f "$DIR/$BINARY" ]; then
+          echo "::error::$BINARY is missing from $DIR after install"
           exit 1
         fi
-        chmod +x "$DIR/mago"
-        echo "$DIR" >> "$GITHUB_PATH"
+        chmod +x "$DIR/$BINARY"
+        echo "$NATIVE_DIR" >> "$GITHUB_PATH"
