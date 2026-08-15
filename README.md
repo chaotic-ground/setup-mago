@@ -47,7 +47,7 @@ a JavaScript runtime, a bundled `node_modules`, or the dependency-update churn t
 ## Support
 
 Linux and macOS, on x86-64 and arm64. Windows runners are rejected with a clear error rather than
-silently mis-detected; mago does publish a Windows asset, so adding it is mostly a matter of
+silently misdetected; mago does publish a Windows asset, so adding it is mostly a matter of
 handling the `.zip` and the `.exe` suffix if someone needs it.
 
 ## Licence
