@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/chaotic-ground/setup-mago/compare/v1.0.0...v1.1.0) (2026-08-15)
+
+
+### Features
+
+* take the version and checksum from composer.json's extra ([#7](https://github.com/chaotic-ground/setup-mago/issues/7)) ([f77c462](https://github.com/chaotic-ground/setup-mago/commit/f77c462281ec810877c4b8a7e5ba6099ccb32441))
+
+
+### Bugfixes
+
+* turn down arm64 Windows instead of fetching an asset that does not exist ([#6](https://github.com/chaotic-ground/setup-mago/issues/6)) ([465b927](https://github.com/chaotic-ground/setup-mago/commit/465b92782772e7a37de494f80cef155e8be5f755))
+
 ## 1.0.0 (2026-08-15)
 
 
