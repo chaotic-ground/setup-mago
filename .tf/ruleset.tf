@@ -1,9 +1,8 @@
-# Import only once the ruleset exists and var.ruleset_id names it; an import block pointing at a
-# ruleset that has never been created fails the plan.
+# A ruleset can be imported by its numeric ID and no other way, and state is not kept between
+# runs, so the ID is written down here. Recreating the ruleset gives it a new one.
 import {
-  for_each = var.ruleset_id == null ? toset([]) : toset([var.ruleset_id])
-  id       = "setup-mago:${each.value}"
-  to       = github_repository_ruleset.default
+  id = "setup-mago:20882589"
+  to = github_repository_ruleset.default
 }
 resource "github_repository_ruleset" "default" {
   name        = "default"
