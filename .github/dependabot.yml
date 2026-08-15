@@ -13,3 +13,13 @@ updates:
       github-actions:
         patterns:
           - "*"
+  - package-ecosystem: terraform
+    directory: /.tf
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      terraform:
+        patterns:
+          - "*"
