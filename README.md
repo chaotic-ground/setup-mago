@@ -77,8 +77,9 @@ version out of the composer files, none of which needs a JavaScript runtime, a b
 
 ## Support
 
-Linux, macOS and Windows, on x86-64 and arm64 — every runner mago publishes an asset for. Anything
-else is rejected with a clear error rather than silently misdetected.
+Linux and macOS on x86-64 and arm64, and Windows on x86-64 — every runner mago publishes an asset
+for. mago has no arm64 Windows build, so an arm64 Windows runner is turned down with a clear error,
+as is anything else, rather than being silently misdetected.
 
 Reading a version out of composer files needs `jq`, which every GitHub-hosted runner image has. On
 a self-hosted runner without it the read is skipped with a warning and the latest release is
