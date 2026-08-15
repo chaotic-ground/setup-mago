@@ -1,0 +1,76 @@
+---
+name: Setup mago
+description: Install the mago PHP toolchain without spending GitHub REST API calls.
+
+inputs:
+  version:
+    description: Version of mago to install, without a leading "v" (e.g. "1.29.0").
+    required: true
+  sha256:
+    description: >-
+      Expected sha256 of the release archive, verified before the binary is installed.
+      Checked only when set, since the value differs per version and per platform.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # mago publishes one asset per Rust target triple, so the runner has to be mapped onto one.
+    - id: target
+      shell: bash
+      env:
+        OS: ${{ runner.os }}
+        ARCH: ${{ runner.arch }}
+      run: |
+        case "$ARCH" in
+          X64) arch=x86_64 ;;
+          ARM64) arch=aarch64 ;;
+          *) echo "::error::setup-mago does not support the $ARCH architecture"; exit 1 ;;
+        esac
+        case "$OS" in
+          Linux) triple="$arch-unknown-linux-musl" ;;
+          macOS) triple="$arch-apple-darwin" ;;
+          *) echo "::error::setup-mago does not support $OS; only Linux and macOS are handled"; exit 1 ;;
+        esac
+        echo "triple=$triple" >> "$GITHUB_OUTPUT"
+
+    # The checksum is part of the key: changing it should re-download and re-verify rather than
+    # hand back the binary an earlier, differently-pinned run cached.
+    - id: cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+      with:
+        path: ~/.local/bin/mago
+        key: mago-${{ steps.target.outputs.triple }}-${{ inputs.version }}-${{ inputs.sha256 }}
+
+    # The release asset is served by the CDN rather than the REST API, so this costs no quota. It
+    # lands in a temporary directory and is only moved into the cached path once it verifies.
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        SHA256: ${{ inputs.sha256 }}
+        TRIPLE: ${{ steps.target.outputs.triple }}
+      run: |
+        dir="mago-${VERSION}-${TRIPLE}"
+        url="https://github.com/carthage-software/mago/releases/download/${VERSION}/${dir}.tar.gz"
+        tmp=$(mktemp -d)
+        curl -fsSL -o "$tmp/mago.tar.gz" "$url"
+        if [ -n "$SHA256" ]; then
+          # macOS runners ship shasum, not GNU sha256sum.
+          if command -v sha256sum >/dev/null 2>&1; then
+            echo "${SHA256}  $tmp/mago.tar.gz" | sha256sum -c -
+          else
+            echo "${SHA256}  $tmp/mago.tar.gz" | shasum -a 256 -c -
+          fi
+        fi
+        tar -xzf "$tmp/mago.tar.gz" -C "$tmp"
+        mkdir -p ~/.local/bin
+        mv "$tmp/$dir/mago" ~/.local/bin/mago
+
+    # Putting the tool on PATH is the point of a setup action, and the value written is a fixed
+    # path under the runner's own HOME, not anything a caller supplies.
+    - shell: bash
+      run: |  # zizmor: ignore[github-env]
+        chmod +x ~/.local/bin/mago
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"

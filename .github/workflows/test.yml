@@ -1,0 +1,70 @@
+---
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+# Cancel superseded runs; pushes to main are left to finish, keeping a result per merged commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+env:
+  MAGO_VERSION: "1.29.0"
+  # sha256 of mago-1.29.0-x86_64-unknown-linux-musl.tar.gz; Linux x86-64 only.
+  MAGO_SHA256_LINUX_X64: "5e99d1232fa93e6adc6feaaddaf2b46c148b2990173cdcf18400b474646bf046"
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./
+        with:
+          version: ${{ env.MAGO_VERSION }}
+      - shell: bash
+        run: |
+          got=$(mago --version)
+          echo "$got"
+          case "$got" in
+            *"$MAGO_VERSION"*) ;;
+            *) echo "::error::expected $MAGO_VERSION, got: $got"; exit 1 ;;
+          esac
+
+  # A matching checksum must install, and a wrong one must stop the install rather than pass it
+  # through. Both use a sha256 no other job pins, so neither can be answered from a warm cache.
+  checksum:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./
+        with:
+          version: ${{ env.MAGO_VERSION }}
+          sha256: ${{ env.MAGO_SHA256_LINUX_X64 }}
+      - shell: bash
+        run: mago --version
+
+      - id: wrong
+        continue-on-error: true
+        uses: ./
+        with:
+          version: ${{ env.MAGO_VERSION }}
+          sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      - if: steps.wrong.outcome != 'failure'
+        shell: bash
+        run: |
+          echo "::error::a mismatched sha256 was accepted"
+          exit 1
