@@ -3,7 +3,7 @@
 Installs the [mago](https://github.com/carthage-software/mago) PHP toolchain in GitHub Actions.
 
 ```yaml
-- uses: chaotic-ground/setup-mago@4042602ce52a1108688c4009734eedba2a9b66e4  # v1.0.0
+- uses: chaotic-ground/setup-mago@2b05b7dc0ef2b491d204a80173c5e573b208d032  # v1.0.0
   with:
     version: "1.29.0"
 - run: mago format --check
@@ -50,7 +50,7 @@ resolves to the latest release with a warning.
 Pinning the checksum is worth it where the version is pinned anyway:
 
 ```yaml
-- uses: chaotic-ground/setup-mago@4042602ce52a1108688c4009734eedba2a9b66e4  # v1.0.0
+- uses: chaotic-ground/setup-mago@2b05b7dc0ef2b491d204a80173c5e573b208d032  # v1.0.0
   with:
     version: "1.29.0"
     sha256: "5e99d1232fa93e6adc6feaaddaf2b46c148b2990173cdcf18400b474646bf046"
