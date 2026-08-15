@@ -29,6 +29,7 @@ runs:
         OS: ${{ runner.os }}
         ARCH: ${{ runner.arch }}
         VERSION: ${{ inputs.version }}
+        SHA256: ${{ inputs.sha256 }}
       run: |
         # mago publishes one asset per Rust target triple, so map the runner onto one.
         case "$ARCH" in
@@ -56,28 +57,37 @@ runs:
           echo "latest is $VERSION"
         fi
 
+        # Each pin gets its own directory, so two installs in one job never share a path. Sharing
+        # one would let actions/cache save whatever an earlier install left there under this
+        # install's key, and a later run restoring that key would skip the download -- and with it
+        # the checksum -- for a binary this pin never verified.
         echo "triple=$triple" >> "$GITHUB_OUTPUT"
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "dir=$HOME/.cache/setup-mago/$triple/$VERSION/${SHA256:-unpinned}" >> "$GITHUB_OUTPUT"
 
     # The checksum is part of the key: changing it should re-download and re-verify rather than
     # hand back the binary an earlier, differently-pinned run cached.
     - id: cache
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
       with:
-        path: ~/.local/bin/mago
-        key: mago-${{ steps.resolve.outputs.triple }}-${{ steps.resolve.outputs.version }}-${{ inputs.sha256 }}
+        path: ${{ steps.resolve.outputs.dir }}
+        # The leading 2 is the layout, not the tool: entries written under the old shared path are
+        # not restorable into this one and must not be reachable by key.
+        key: mago-2-${{ steps.resolve.outputs.triple }}-${{ steps.resolve.outputs.version }}-${{ inputs.sha256 }}
 
     # The release asset is served by the CDN rather than the REST API, so this costs no quota. It
-    # lands in a temporary directory and is only moved into the cached path once it verifies.
+    # lands in a temporary directory, and the install directory is not created until the archive
+    # verifies, so a failed check leaves nothing behind for actions/cache to save under this key.
     - if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         VERSION: ${{ steps.resolve.outputs.version }}
         SHA256: ${{ inputs.sha256 }}
         TRIPLE: ${{ steps.resolve.outputs.triple }}
+        DIR: ${{ steps.resolve.outputs.dir }}
       run: |
-        dir="mago-${VERSION}-${TRIPLE}"
-        url="https://github.com/carthage-software/mago/releases/download/${VERSION}/${dir}.tar.gz"
+        name="mago-${VERSION}-${TRIPLE}"
+        url="https://github.com/carthage-software/mago/releases/download/${VERSION}/${name}.tar.gz"
         tmp=$(mktemp -d)
         curl -fsSL -o "$tmp/mago.tar.gz" "$url"
         if [ -n "$SHA256" ]; then
@@ -89,12 +99,18 @@ runs:
           fi
         fi
         tar -xzf "$tmp/mago.tar.gz" -C "$tmp"
-        mkdir -p ~/.local/bin
-        mv "$tmp/$dir/mago" ~/.local/bin/mago
+        mkdir -p "$DIR"
+        mv "$tmp/$name/mago" "$DIR/mago"
 
-    # Putting the tool on PATH is the point of a setup action, and the value written is a fixed
-    # path under the runner's own HOME, not anything a caller supplies.
+    # A restored cache entry must still contain the binary; anything else is a broken entry and
+    # should say so rather than leave a later step failing on "mago: command not found".
     - shell: bash
+      env:
+        DIR: ${{ steps.resolve.outputs.dir }}
       run: |  # zizmor: ignore[github-env]
-        chmod +x ~/.local/bin/mago
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        if [ ! -f "$DIR/mago" ]; then
+          echo "::error::mago is missing from $DIR after install"
+          exit 1
+        fi
+        chmod +x "$DIR/mago"
+        echo "$DIR" >> "$GITHUB_PATH"
