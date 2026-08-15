@@ -10,12 +10,26 @@ Installs the [mago](https://github.com/carthage-software/mago) PHP toolchain in 
 - run: mago lint
 ```
 
+A commit SHA works in place of `@v1`, and is what GitHub recommends for third-party actions:
+
+```yaml
+- uses: chaotic-ground/setup-mago@4042602ce52a1108688c4009734eedba2a9b66e4  # v1.0.0
+```
+
 ## Inputs
 
-| Input | Required | Description |
+| Input | Default | Description |
 |---|---|---|
-| `version` | yes | Version to install, without a leading `v` (e.g. `1.29.0`). |
-| `sha256` | no | Expected sha256 of the release archive. Verified before install when set. |
+| `version` | `latest` | Version to install, without a leading `v` (e.g. `1.29.0`), or `latest`. |
+| `sha256` | — | Expected sha256 of the release archive. Verified before install when set. |
+
+| Output | Description |
+|---|---|
+| `version` | The version installed, with `latest` resolved to a concrete one. |
+
+`latest` is resolved from where the releases page redirects to, which names the tag. Asking the
+REST API instead would spend the quota this action exists to protect — and more of it than a pinned
+version does, since resolving latest there means listing every release.
 
 Pinning the checksum is worth it where the version is pinned anyway:
 
