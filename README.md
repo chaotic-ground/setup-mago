@@ -10,6 +10,12 @@ Installs the [mago](https://github.com/carthage-software/mago) PHP toolchain in 
 - run: mago lint
 ```
 
+A commit SHA works in place of `@v1`, and is what GitHub recommends for third-party actions:
+
+```yaml
+- uses: chaotic-ground/setup-mago@4042602ce52a1108688c4009734eedba2a9b66e4  # v1.0.0
+```
+
 ## Inputs
 
 | Input | Required | Description |
